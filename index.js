@@ -16,11 +16,17 @@ const client = new Client({
     ]
 });
 
+const { Player } = require('discord-player');
+const { YouTubeExtractor } = require('@discord-player/extractor');
+
+// กำหนด Player
 const player = new Player(client);
+player.extractors.register(YouTubeExtractor); // ✅ สำคัญมาก!
 
 client.once('ready', () => {
     console.log(`✅ บอทออนไลน์แล้วในชื่อ ${client.user.tag}`);
 });
+
 
 client.on('messageCreate', async message => {
     if (message.author.bot) return;
