@@ -5,7 +5,6 @@ const {
     ModalBuilder, TextInputBuilder, TextInputStyle,
     EmbedBuilder
 } = require('discord.js');
-const { Player } = require('discord-player');
 
 const client = new Client({
     intents: [
