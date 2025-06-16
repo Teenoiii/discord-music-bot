@@ -1,5 +1,10 @@
 require('dotenv').config();
-const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes, EmbedBuilder } = require('discord.js');
+const {
+    Client, GatewayIntentBits,
+    ActionRowBuilder, ButtonBuilder, ButtonStyle,
+    ModalBuilder, TextInputBuilder, TextInputStyle,
+    EmbedBuilder
+} = require('discord.js');
 const {
     joinVoiceChannel,
     createAudioPlayer,
@@ -12,92 +17,83 @@ const play = require('play-dl');
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
-        GatewayIntentBits.GuildVoiceStates,
         GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.GuildVoiceStates,
         GatewayIntentBits.MessageContent
     ]
 });
 
 const queue = new Map();
 
-client.once('ready', async () => {
+client.once('ready', () => {
     console.log(`✅ บอทออนไลน์แล้วในชื่อ ${client.user.tag}`);
+});
 
-    const commands = [
-        new SlashCommandBuilder()
-            .setName('play')
-            .setDescription('เล่นเพลงจาก YouTube (ลิงก์หรือคำค้นหา)')
-            .addStringOption(option =>
-                option.setName('query').setDescription('ลิงก์หรือคำค้นหา').setRequired(true)),
-        new SlashCommandBuilder()
-            .setName('skip')
-            .setDescription('ข้ามเพลงที่กำลังเล่น'),
-        new SlashCommandBuilder()
-            .setName('stop')
-            .setDescription('หยุดเล่นและล้างคิว')
-    ].map(cmd => cmd.toJSON());
-
-    const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
-    try {
-        await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
-        console.log('✅ ลงทะเบียน Slash Command สำเร็จ');
-    } catch (err) {
-        console.error('❌ ลงทะเบียนคำสั่งล้มเหลว', err);
+client.on('messageCreate', async message => {
+    if (message.author.bot) return;
+    if (message.content === '!music') {
+        const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId('open_modal')
+                .setLabel('🎵 ใส่ลิงก์ YouTube')
+                .setStyle(ButtonStyle.Primary)
+        );
+        await message.reply({ content: 'มึงกรุณากดปุ่มด้านล่างเพื่อใส่ลิงก์เพลง 🎶', components: [row] });
     }
 });
 
 client.on('interactionCreate', async interaction => {
-    if (!interaction.isChatInputCommand()) return;
+    if (interaction.isButton() && interaction.customId === 'open_modal') {
+        const modal = new ModalBuilder()
+            .setCustomId('youtube_modal')
+            .setTitle('🎶 เล่นเพลง YouTube')
+            .addComponents(
+                new ActionRowBuilder().addComponents(
+                    new TextInputBuilder()
+                        .setCustomId('youtube_url')
+                        .setLabel('ใส่ลิงก์หรือคำค้นหา YouTube')
+                        .setStyle(TextInputStyle.Short)
+                        .setRequired(true)
+                )
+            );
+        await interaction.showModal(modal);
+    }
 
-    const guildId = interaction.guild.id;
-    const serverQueue = queue.get(guildId);
-
-    if (interaction.commandName === 'play') {
-        const query = interaction.options.getString('query');
+    if (interaction.isModalSubmit() && interaction.customId === 'youtube_modal') {
+        const query = interaction.fields.getTextInputValue('youtube_url');
         const voiceChannel = interaction.member.voice.channel;
-        if (!voiceChannel) return interaction.reply('🔊 กรุณาเข้าห้องเสียงก่อน');
+        if (!voiceChannel) return interaction.reply({ content: '🔊 กรุณาเข้าห้องเสียงก่อน', ephemeral: true });
 
         await interaction.deferReply();
+        const serverQueue = queue.get(interaction.guild.id);
 
         if (serverQueue) {
             serverQueue.songs.push(query);
             return interaction.editReply(`➕ เพิ่มเข้าแถว: \`${query}\``);
-        } else {
-            const songQueue = {
-                voiceChannel,
-                connection: null,
-                player: createAudioPlayer({ behaviors: { noSubscriber: NoSubscriberBehavior.Pause } }),
-                songs: [query],
-                playing: false
-            };
-            queue.set(guildId, songQueue);
-            try {
-                songQueue.connection = joinVoiceChannel({
-                    channelId: voiceChannel.id,
-                    guildId,
-                    adapterCreator: interaction.guild.voiceAdapterCreator
-                });
-                songQueue.connection.subscribe(songQueue.player);
-                playNext(interaction, songQueue);
-            } catch (err) {
-                console.error(err);
-                queue.delete(guildId);
-                return interaction.editReply('❌ ไม่สามารถเชื่อมต่อห้องเสียงได้');
-            }
         }
 
-    } else if (interaction.commandName === 'skip') {
-        if (!serverQueue) return interaction.reply('❌ ไม่มีเพลงที่กำลังเล่น');
-        serverQueue.player.stop();
-        interaction.reply('⏭️ ข้ามเพลงแล้ว');
+        const songQueue = {
+            voiceChannel,
+            connection: null,
+            player: createAudioPlayer({ behaviors: { noSubscriber: NoSubscriberBehavior.Pause } }),
+            songs: [query],
+            playing: false
+        };
+        queue.set(interaction.guild.id, songQueue);
 
-    } else if (interaction.commandName === 'stop') {
-        if (!serverQueue) return interaction.reply('❌ ไม่มีเพลงที่กำลังเล่น');
-        serverQueue.songs = [];
-        serverQueue.player.stop();
-        if (serverQueue.connection) serverQueue.connection.destroy();
-        queue.delete(guildId);
-        interaction.reply('⏹️ หยุดเล่นและออกจากห้องเสียงแล้ว');
+        try {
+            songQueue.connection = joinVoiceChannel({
+                channelId: voiceChannel.id,
+                guildId: interaction.guild.id,
+                adapterCreator: interaction.guild.voiceAdapterCreator
+            });
+            songQueue.connection.subscribe(songQueue.player);
+            playNext(interaction, songQueue);
+        } catch (err) {
+            console.error(err);
+            queue.delete(interaction.guild.id);
+            return interaction.editReply('❌ ไม่สามารถเชื่อมต่อห้องเสียงได้');
+        }
     }
 });
 
@@ -133,13 +129,13 @@ async function playNext(interaction, songQueue) {
         songQueue.player.once(AudioPlayerStatus.Idle, () => {
             playNext(interaction, songQueue);
         });
-
     } catch (err) {
         console.error(err);
         interaction.followUp('❌ เกิดข้อผิดพลาดในการเล่นเพลง');
     }
 }
 
+// 🛡 ป้องกัน Render ปิด
 setInterval(() => { }, 1000 * 60 * 5);
 
 client.login(process.env.DISCORD_TOKEN);
