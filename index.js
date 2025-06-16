@@ -67,3 +67,7 @@ client.on('messageCreate', async message => {
 });
 
 client.login(process.env.DISCORD_TOKEN);
+
+
+// ป้องกัน Render ปิดโปรเซส
+setInterval(() => { }, 1000 * 60 * 5);
