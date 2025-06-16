@@ -1,6 +1,6 @@
 require('dotenv').config();
 const { Client, GatewayIntentBits } = require('discord.js');
-const { Player } = require('discord-player');
+const { Player, useMainPlayer } = require('discord-player'); // ✅ เพิ่ม useMainPlayer
 const { YouTubeExtractor } = require('@discord-player/extractor');
 
 const client = new Client({
@@ -13,7 +13,8 @@ const client = new Client({
 });
 
 const player = new Player(client);
-player.extractors.register(YouTubeExtractor);
+const mainPlayer = useMainPlayer(); // ✅ สำคัญกับระบบ track/queue ใหม่
+player.extractors.loadDefault(); // ✅ โหลด YouTubeExtractor และอื่นๆ อัตโนมัติ
 
 client.once('ready', () => {
     console.log(`✅ บอทออนไลน์แล้วในชื่อ ${client.user.tag}`);
