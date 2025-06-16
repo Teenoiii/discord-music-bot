@@ -1,10 +1,7 @@
 require('dotenv').config();
-const {
-    Client, GatewayIntentBits,
-    ActionRowBuilder, ButtonBuilder, ButtonStyle,
-    ModalBuilder, TextInputBuilder, TextInputStyle,
-    EmbedBuilder
-} = require('discord.js');
+const { Client, GatewayIntentBits } = require('discord.js');
+const { Player } = require('discord-player');
+const { YouTubeExtractor } = require('@discord-player/extractor');
 
 const client = new Client({
     intents: [
@@ -15,87 +12,61 @@ const client = new Client({
     ]
 });
 
-const { Player } = require('discord-player');
-const { YouTubeExtractor } = require('@discord-player/extractor');
-
-// กำหนด Player
 const player = new Player(client);
-player.extractors.register(YouTubeExtractor); // ✅ สำคัญมาก!
+player.extractors.register(YouTubeExtractor);
 
 client.once('ready', () => {
     console.log(`✅ บอทออนไลน์แล้วในชื่อ ${client.user.tag}`);
 });
 
-
 client.on('messageCreate', async message => {
     if (message.author.bot) return;
-    if (message.content === '!music') {
-        const row = new ActionRowBuilder().addComponents(
-            new ButtonBuilder()
-                .setCustomId('open_modal')
-                .setLabel('🎵 ใส่ลิงก์หรือชื่อเพลง')
-                .setStyle(ButtonStyle.Primary)
-        );
-        await message.reply({ content: 'กดปุ่มเพื่อใส่ลิงก์หรือชื่อเพลง 🎶', components: [row] });
-    }
-});
 
-client.on('interactionCreate', async interaction => {
-    if (interaction.isButton() && interaction.customId === 'open_modal') {
-        const modal = new ModalBuilder()
-            .setCustomId('music_modal')
-            .setTitle('🎶 เปิดเพลง YouTube')
-            .addComponents(
-                new ActionRowBuilder().addComponents(
-                    new TextInputBuilder()
-                        .setCustomId('music_query')
-                        .setLabel('ชื่อเพลงหรือ URL YouTube')
-                        .setStyle(TextInputStyle.Short)
-                        .setRequired(true)
-                )
-            );
-        await interaction.showModal(modal);
-    }
+    if (message.content.startsWith('!play')) {
+        const query = message.content.replace('!play', '').trim();
+        const voiceChannel = message.member.voice.channel;
+        if (!voiceChannel) return message.reply('🔊 กรุณาเข้าห้องเสียงก่อน');
 
-    if (interaction.isModalSubmit() && interaction.customId === 'music_modal') {
-        const query = interaction.fields.getTextInputValue('music_query');
-        const voiceChannel = interaction.member.voice.channel;
-        if (!voiceChannel) return interaction.reply({ content: '🔊 กรุณาเข้าห้องเสียงก่อน', ephemeral: true });
-
-        await interaction.deferReply();
+        await message.channel.send('🔍 กำลังค้นหาเพลง...');
 
         try {
             const searchResult = await player.search(query, {
-                requestedBy: interaction.user
+                requestedBy: message.author
             });
 
             if (!searchResult || !searchResult.tracks.length)
-                return interaction.editReply('❌ ไม่พบเพลงที่ค้นหา');
+                return message.reply('❌ ไม่พบเพลงที่ค้นหา');
 
-            const queue = await player.nodes.create(interaction.guild, {
+            const queue = await player.nodes.create(message.guild, {
                 metadata: {
-                    channel: interaction.channel
+                    channel: message.channel
                 }
             });
 
-            if (!queue.connection)
-                await queue.connect(voiceChannel);
+            if (!queue.connection) await queue.connect(voiceChannel);
 
             queue.addTrack(searchResult.tracks[0]);
             if (!queue.isPlaying()) await queue.node.play();
 
-            const track = searchResult.tracks[0];
-            const embed = new EmbedBuilder()
-                .setTitle('🎶 กำลังเล่นเพลง')
-                .setDescription(`[${track.title}](${track.url})`)
-                .setThumbnail(track.thumbnail)
-                .setColor(0x1DB954);
-
-            interaction.editReply({ embeds: [embed] });
-        } catch (err) {
-            console.error(err);
-            interaction.editReply('❌ เกิดข้อผิดพลาดในการเล่นเพลง');
+            return message.channel.send(`🎶 กำลังเล่น: **${searchResult.tracks[0].title}**`);
+        } catch (error) {
+            console.error(error);
+            return message.reply('❌ เกิดข้อผิดพลาด');
         }
+    }
+
+    if (message.content === '!skip') {
+        const queue = player.nodes.get(message.guild.id);
+        if (!queue || !queue.isPlaying()) return message.reply('❌ ไม่มีเพลงที่กำลังเล่น');
+        queue.node.skip();
+        return message.reply('⏭️ ข้ามเพลงแล้ว');
+    }
+
+    if (message.content === '!stop') {
+        const queue = player.nodes.get(message.guild.id);
+        if (!queue || !queue.isPlaying()) return message.reply('❌ ไม่มีเพลงที่กำลังเล่น');
+        queue.delete();
+        return message.reply('⏹️ หยุดเล่นเพลงแล้ว');
     }
 });
 
