@@ -1,7 +1,7 @@
 require('dotenv').config();
 const { Client, GatewayIntentBits } = require('discord.js');
-const { Player, useMainPlayer } = require('discord-player'); // ✅ เพิ่ม useMainPlayer
-const { YouTubeExtractor } = require('@discord-player/extractor');
+const { Player } = require('discord-player');
+const { DefaultExtractors } = require('@discord-player/extractor');
 
 const client = new Client({
     intents: [
@@ -13,22 +13,22 @@ const client = new Client({
 });
 
 const player = new Player(client);
-const mainPlayer = useMainPlayer(); // ✅ สำคัญกับระบบ track/queue ใหม่
-player.extractors.loadDefault(); // ✅ โหลด YouTubeExtractor และอื่นๆ อัตโนมัติ
+
+// ✅ โหลด extractors ที่รองรับ YouTube, SoundCloud, etc.
+player.extractors.loadMulti(DefaultExtractors);
 
 client.once('ready', () => {
-    console.log(`✅ บอทออนไลน์แล้วในชื่อ ${client.user.tag}`);
+    console.log(`✅ บอทออนไลน์ในชื่อ ${client.user.tag}`);
 });
 
 client.on('messageCreate', async message => {
     if (message.author.bot) return;
 
+    // ▶️ คำสั่ง !play
     if (message.content.startsWith('!play')) {
         const query = message.content.replace('!play', '').trim();
         const voiceChannel = message.member.voice.channel;
         if (!voiceChannel) return message.reply('🔊 กรุณาเข้าห้องเสียงก่อน');
-
-        await message.channel.send('🔍 กำลังค้นหาเพลง...');
 
         try {
             const searchResult = await player.search(query, {
@@ -36,7 +36,7 @@ client.on('messageCreate', async message => {
             });
 
             if (!searchResult || !searchResult.tracks.length)
-                return message.reply('❌ ไม่พบเพลงที่ค้นหา');
+                return message.reply('❌ ไม่พบเพลง');
 
             const queue = await player.nodes.create(message.guild, {
                 metadata: {
@@ -44,9 +44,11 @@ client.on('messageCreate', async message => {
                 }
             });
 
-            if (!queue.connection) await queue.connect(voiceChannel);
+            if (!queue.connection)
+                await queue.connect(voiceChannel);
 
             queue.addTrack(searchResult.tracks[0]);
+
             if (!queue.isPlaying()) await queue.node.play();
 
             return message.channel.send(`🎶 กำลังเล่น: **${searchResult.tracks[0].title}**`);
@@ -56,6 +58,7 @@ client.on('messageCreate', async message => {
         }
     }
 
+    // ⏭️ คำสั่ง !skip
     if (message.content === '!skip') {
         const queue = player.nodes.get(message.guild.id);
         if (!queue || !queue.isPlaying()) return message.reply('❌ ไม่มีเพลงที่กำลังเล่น');
@@ -63,6 +66,7 @@ client.on('messageCreate', async message => {
         return message.reply('⏭️ ข้ามเพลงแล้ว');
     }
 
+    // ⏹️ คำสั่ง !stop
     if (message.content === '!stop') {
         const queue = player.nodes.get(message.guild.id);
         if (!queue || !queue.isPlaying()) return message.reply('❌ ไม่มีเพลงที่กำลังเล่น');
@@ -71,6 +75,7 @@ client.on('messageCreate', async message => {
     }
 });
 
-setInterval(() => { }, 1000 * 60 * 5); // ป้องกัน Render ปิด
+// กัน Render ปิด
+setInterval(() => { }, 1000 * 60 * 5);
 
 client.login(process.env.DISCORD_TOKEN);
