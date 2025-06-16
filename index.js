@@ -1,7 +1,13 @@
 require('dotenv').config();
 const { Client, GatewayIntentBits } = require('discord.js');
-const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus, NoSubscriberBehavior } = require('@discordjs/voice');
-const ytdl = require('@distube/ytdl-core');
+const {
+    joinVoiceChannel,
+    createAudioPlayer,
+    createAudioResource,
+    AudioPlayerStatus,
+    NoSubscriberBehavior
+} = require('@discordjs/voice');
+const play = require('play-dl');
 
 const client = new Client({
     intents: [
@@ -24,7 +30,7 @@ client.on('messageCreate', async message => {
     const args = message.content.split(' ');
     const url = args[1];
 
-    if (!ytdl.validateURL(url)) {
+    if (!play.yt_validate(url)) {
         return message.channel.send('❌ กรุณาใส่ลิงก์ YouTube ที่ถูกต้อง');
     }
 
@@ -38,14 +44,8 @@ client.on('messageCreate', async message => {
             adapterCreator: message.guild.voiceAdapterCreator,
         });
 
-        const stream = ytdl(url, { filter: 'audioonly', highWaterMark: 1 << 25 });
-        stream.on('error', err => {
-            console.error('[STREAM ERROR]', err.message || err);
-            message.channel.send(`❌ ไม่สามารถโหลดเสียง: ${err.message || err}`);
-        });
-
-
-        const resource = createAudioResource(stream, { inlineVolume: true });
+        const stream = await play.stream(url);
+        const resource = createAudioResource(stream.stream, { inputType: stream.type });
         const player = createAudioPlayer({
             behaviors: {
                 noSubscriber: NoSubscriberBehavior.Pause
@@ -67,4 +67,3 @@ client.on('messageCreate', async message => {
 });
 
 client.login(process.env.DISCORD_TOKEN);
-// ..........................................................................................................................................................................
