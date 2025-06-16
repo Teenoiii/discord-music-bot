@@ -1,81 +1,68 @@
 require('dotenv').config();
 const { Client, GatewayIntentBits } = require('discord.js');
-const { Player } = require('discord-player');
-const { DefaultExtractors } = require('@discord-player/extractor');
+const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus, NoSubscriberBehavior } = require('@discordjs/voice');
+const ytdl = require('@distube/ytdl-core');
 
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
-        GatewayIntentBits.GuildMessages,
         GatewayIntentBits.GuildVoiceStates,
+        GatewayIntentBits.GuildMessages,
         GatewayIntentBits.MessageContent
     ]
 });
 
-const player = new Player(client);
-
-// ❌ ลบอันนี้ออก: ไม่ควรโหลดก่อน ready
-// player.extractors.loadMulti(DefaultExtractors);
-
-client.once('ready', async () => {
-    await player.extractors.loadMulti(DefaultExtractors); // ✅ โหลด plugin YouTube, etc
+client.once('ready', () => {
     console.log(`✅ บอทออนไลน์แล้วในชื่อ ${client.user.tag}`);
 });
 
 client.on('messageCreate', async message => {
-    if (message.author.bot) return;
+    console.log(`[LOG] รับข้อความ: ${message.content}`);
 
-    if (message.content.startsWith('!play')) {
-        const query = message.content.replace('!play', '').trim();
+    if (!message.content.startsWith('!play') || message.author.bot) return;
+
+    const args = message.content.split(' ');
+    const url = args[1];
+
+    if (!ytdl.validateURL(url)) {
+        return message.channel.send('❌ กรุณาใส่ลิงก์ YouTube ที่ถูกต้อง');
+    }
+
+    try {
         const voiceChannel = message.member.voice.channel;
-        if (!voiceChannel) return message.reply('🔊 กรุณาเข้าห้องเสียงก่อน');
+        if (!voiceChannel) return message.channel.send('🔊 กรุณาเข้าห้องเสียงก่อน');
 
-        try {
-            const searchResult = await player.search(query, {
-                requestedBy: message.author,
-                searchEngine: "youtube"
-            });
-            console.log("🔍 ค้นหา:", query);
-            console.log("🎯 ผลลัพธ์:", searchResult.tracks?.[0]?.title || "ไม่มีเพลง");
-            if (!searchResult || !searchResult.tracks.length)
-                return message.reply('❌ ไม่พบเพลง');
+        const connection = joinVoiceChannel({
+            channelId: voiceChannel.id,
+            guildId: message.guild.id,
+            adapterCreator: message.guild.voiceAdapterCreator,
+        });
 
-            const queue = await player.nodes.create(message.guild, {
-                metadata: {
-                    channel: message.channel
-                }
-            });
+        const stream = ytdl(url, { filter: 'audioonly', highWaterMark: 1 << 25 });
+        stream.on('error', err => {
+            console.error('[STREAM ERROR]', err);
+            message.channel.send('❌ ไม่สามารถโหลดเสียงจาก YouTube ได้');
+        });
 
-            if (!queue.connection)
-                await queue.connect(voiceChannel);
+        const resource = createAudioResource(stream, { inlineVolume: true });
+        const player = createAudioPlayer({
+            behaviors: {
+                noSubscriber: NoSubscriberBehavior.Pause
+            }
+        });
 
-            queue.addTrack(searchResult.tracks[0]);
+        player.play(resource);
+        connection.subscribe(player);
 
-            if (!queue.isPlaying()) await queue.node.play();
+        player.on(AudioPlayerStatus.Idle, () => {
+            connection.destroy();
+        });
 
-            return message.channel.send(`🎶 กำลังเล่น: **${searchResult.tracks[0].title}**`);
-        } catch (error) {
-            console.error(error);
-            return message.reply('❌ เกิดข้อผิดพลาด');
-        }
-    }
-
-    if (message.content === '!skip') {
-        const queue = player.nodes.get(message.guild.id);
-        if (!queue || !queue.isPlaying()) return message.reply('❌ ไม่มีเพลงที่กำลังเล่น');
-        queue.node.skip();
-        return message.reply('⏭️ ข้ามเพลงแล้ว');
-    }
-
-    if (message.content === '!stop') {
-        const queue = player.nodes.get(message.guild.id);
-        if (!queue || !queue.isPlaying()) return message.reply('❌ ไม่มีเพลงที่กำลังเล่น');
-        queue.delete();
-        return message.reply('⏹️ หยุดเล่นเพลงแล้ว');
+        message.channel.send(`🎶 กำลังเล่น: ${url}`);
+    } catch (err) {
+        console.error(`[ERROR] ${err}`);
+        message.channel.send('❌ เกิดข้อผิดพลาดในการเล่นเพลง');
     }
 });
-
-// กัน Render ปิด
-setInterval(() => { }, 1000 * 60 * 5);
 
 client.login(process.env.DISCORD_TOKEN);
