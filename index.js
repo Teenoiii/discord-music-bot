@@ -17,8 +17,9 @@ const player = new Player(client);
 // ✅ โหลด extractors ที่รองรับ YouTube, SoundCloud, etc.
 player.extractors.loadMulti(DefaultExtractors);
 
-client.once('ready', () => {
-    console.log(`✅ บอทออนไลน์ในชื่อ ${client.user.tag}`);
+client.once('ready', async () => {
+    await player.extractors.loadMulti(DefaultExtractors); 
+    console.log(`✅ บอทออนไลน์แล้วในชื่อ ${client.user.tag}`);
 });
 
 client.on('messageCreate', async message => {
