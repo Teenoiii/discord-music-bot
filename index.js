@@ -25,15 +25,9 @@ const client = new Client({
 
 const queue = new Map();
 
-client.once('ready', async () => {
-    await play.setToken({
-        youtube: {
-            cookie: process.env.YOUTUBE_COOKIE
-        }
-    });
+client.once('ready', () => {
     console.log(`✅ บอทออนไลน์แล้วในชื่อ ${client.user.tag}`);
 });
-
 
 client.on('messageCreate', async message => {
     if (message.author.bot) return;
