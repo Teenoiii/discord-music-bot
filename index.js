@@ -14,18 +14,17 @@ const client = new Client({
 
 const player = new Player(client);
 
-// ✅ โหลด extractors ที่รองรับ YouTube, SoundCloud, etc.
-player.extractors.loadMulti(DefaultExtractors);
+// ❌ ลบอันนี้ออก: ไม่ควรโหลดก่อน ready
+// player.extractors.loadMulti(DefaultExtractors);
 
 client.once('ready', async () => {
-    await player.extractors.loadMulti(DefaultExtractors); 
+    await player.extractors.loadMulti(DefaultExtractors); // ✅ โหลด plugin YouTube, etc
     console.log(`✅ บอทออนไลน์แล้วในชื่อ ${client.user.tag}`);
 });
 
 client.on('messageCreate', async message => {
     if (message.author.bot) return;
 
-    // ▶️ คำสั่ง !play
     if (message.content.startsWith('!play')) {
         const query = message.content.replace('!play', '').trim();
         const voiceChannel = message.member.voice.channel;
@@ -59,7 +58,6 @@ client.on('messageCreate', async message => {
         }
     }
 
-    // ⏭️ คำสั่ง !skip
     if (message.content === '!skip') {
         const queue = player.nodes.get(message.guild.id);
         if (!queue || !queue.isPlaying()) return message.reply('❌ ไม่มีเพลงที่กำลังเล่น');
@@ -67,7 +65,6 @@ client.on('messageCreate', async message => {
         return message.reply('⏭️ ข้ามเพลงแล้ว');
     }
 
-    // ⏹️ คำสั่ง !stop
     if (message.content === '!stop') {
         const queue = player.nodes.get(message.guild.id);
         if (!queue || !queue.isPlaying()) return message.reply('❌ ไม่มีเพลงที่กำลังเล่น');
