@@ -5,14 +5,7 @@ const {
     ModalBuilder, TextInputBuilder, TextInputStyle,
     EmbedBuilder
 } = require('discord.js');
-const {
-    joinVoiceChannel,
-    createAudioPlayer,
-    createAudioResource,
-    AudioPlayerStatus,
-    NoSubscriberBehavior
-} = require('@discordjs/voice');
-const play = require('play-dl');
+const { Player } = require('discord-player');
 
 const client = new Client({
     intents: [
@@ -23,7 +16,7 @@ const client = new Client({
     ]
 });
 
-const queue = new Map();
+const player = new Player(client);
 
 client.once('ready', () => {
     console.log(`✅ บอทออนไลน์แล้วในชื่อ ${client.user.tag}`);
@@ -35,23 +28,23 @@ client.on('messageCreate', async message => {
         const row = new ActionRowBuilder().addComponents(
             new ButtonBuilder()
                 .setCustomId('open_modal')
-                .setLabel('🎵 ใส่ลิงก์ YouTube')
+                .setLabel('🎵 ใส่ลิงก์หรือชื่อเพลง')
                 .setStyle(ButtonStyle.Primary)
         );
-        await message.reply({ content: 'มึงกรุณากดปุ่มด้านล่างเพื่อใส่ลิงก์เพลง 🎶', components: [row] });
+        await message.reply({ content: 'กดปุ่มเพื่อใส่ลิงก์หรือชื่อเพลง 🎶', components: [row] });
     }
 });
 
 client.on('interactionCreate', async interaction => {
     if (interaction.isButton() && interaction.customId === 'open_modal') {
         const modal = new ModalBuilder()
-            .setCustomId('youtube_modal')
-            .setTitle('🎶 เล่นเพลง YouTube')
+            .setCustomId('music_modal')
+            .setTitle('🎶 เปิดเพลง YouTube')
             .addComponents(
                 new ActionRowBuilder().addComponents(
                     new TextInputBuilder()
-                        .setCustomId('youtube_url')
-                        .setLabel('ใส่ลิงก์หรือคำค้นหา YouTube')
+                        .setCustomId('music_query')
+                        .setLabel('ชื่อเพลงหรือ URL YouTube')
                         .setStyle(TextInputStyle.Short)
                         .setRequired(true)
                 )
@@ -59,83 +52,48 @@ client.on('interactionCreate', async interaction => {
         await interaction.showModal(modal);
     }
 
-    if (interaction.isModalSubmit() && interaction.customId === 'youtube_modal') {
-        const query = interaction.fields.getTextInputValue('youtube_url');
+    if (interaction.isModalSubmit() && interaction.customId === 'music_modal') {
+        const query = interaction.fields.getTextInputValue('music_query');
         const voiceChannel = interaction.member.voice.channel;
         if (!voiceChannel) return interaction.reply({ content: '🔊 กรุณาเข้าห้องเสียงก่อน', ephemeral: true });
 
         await interaction.deferReply();
-        const serverQueue = queue.get(interaction.guild.id);
-
-        if (serverQueue) {
-            serverQueue.songs.push(query);
-            return interaction.editReply(`➕ เพิ่มเข้าแถว: \`${query}\``);
-        }
-
-        const songQueue = {
-            voiceChannel,
-            connection: null,
-            player: createAudioPlayer({ behaviors: { noSubscriber: NoSubscriberBehavior.Pause } }),
-            songs: [query],
-            playing: false
-        };
-        queue.set(interaction.guild.id, songQueue);
 
         try {
-            songQueue.connection = joinVoiceChannel({
-                channelId: voiceChannel.id,
-                guildId: interaction.guild.id,
-                adapterCreator: interaction.guild.voiceAdapterCreator
+            const searchResult = await player.search(query, {
+                requestedBy: interaction.user
             });
-            songQueue.connection.subscribe(songQueue.player);
-            playNext(interaction, songQueue);
+
+            if (!searchResult || !searchResult.tracks.length)
+                return interaction.editReply('❌ ไม่พบเพลงที่ค้นหา');
+
+            const queue = await player.nodes.create(interaction.guild, {
+                metadata: {
+                    channel: interaction.channel
+                }
+            });
+
+            if (!queue.connection)
+                await queue.connect(voiceChannel);
+
+            queue.addTrack(searchResult.tracks[0]);
+            if (!queue.isPlaying()) await queue.node.play();
+
+            const track = searchResult.tracks[0];
+            const embed = new EmbedBuilder()
+                .setTitle('🎶 กำลังเล่นเพลง')
+                .setDescription(`[${track.title}](${track.url})`)
+                .setThumbnail(track.thumbnail)
+                .setColor(0x1DB954);
+
+            interaction.editReply({ embeds: [embed] });
         } catch (err) {
             console.error(err);
-            queue.delete(interaction.guild.id);
-            return interaction.editReply('❌ ไม่สามารถเชื่อมต่อห้องเสียงได้');
+            interaction.editReply('❌ เกิดข้อผิดพลาดในการเล่นเพลง');
         }
     }
 });
 
-async function playNext(interaction, songQueue) {
-    const query = songQueue.songs.shift();
-    if (!query) {
-        queue.delete(interaction.guild.id);
-        songQueue.connection.destroy();
-        return;
-    }
-
-    try {
-        let videoUrl = query;
-        if (!play.yt_validate(query)) {
-            const results = await play.search(query, { limit: 1 });
-            if (results.length === 0) return interaction.followUp('❌ ไม่พบผลลัพธ์');
-            videoUrl = results[0].url;
-        }
-
-        const stream = await play.stream(videoUrl);
-        const resource = createAudioResource(stream.stream, { inputType: stream.type });
-        songQueue.player.play(resource);
-
-        const info = await play.video_info(videoUrl);
-        const embed = new EmbedBuilder()
-            .setTitle('🎶 กำลังเล่น')
-            .setDescription(`[${info.video_details.title}](${info.video_details.url})`)
-            .setThumbnail(info.video_details.thumbnails[0].url)
-            .setColor(0x1DB954);
-
-        interaction.followUp({ embeds: [embed] });
-
-        songQueue.player.once(AudioPlayerStatus.Idle, () => {
-            playNext(interaction, songQueue);
-        });
-    } catch (err) {
-        console.error(err);
-        interaction.followUp('❌ เกิดข้อผิดพลาดในการเล่นเพลง');
-    }
-}
-
-// 🛡 ป้องกัน Render ปิด
-setInterval(() => { }, 1000 * 60 * 5);
+setInterval(() => { }, 1000 * 60 * 5); // ป้องกัน Render ปิด
 
 client.login(process.env.DISCORD_TOKEN);
