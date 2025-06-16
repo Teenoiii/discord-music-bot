@@ -32,9 +32,11 @@ client.on('messageCreate', async message => {
 
         try {
             const searchResult = await player.search(query, {
-                requestedBy: message.author
+                requestedBy: message.author,
+                searchEngine: "youtube"
             });
-
+            console.log("🔍 ค้นหา:", query);
+            console.log("🎯 ผลลัพธ์:", searchResult.tracks?.[0]?.title || "ไม่มีเพลง");
             if (!searchResult || !searchResult.tracks.length)
                 return message.reply('❌ ไม่พบเพลง');
 
